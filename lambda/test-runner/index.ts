@@ -16,7 +16,7 @@ const dbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dbClient);
 const s3Client = new S3Client({ region: "us-east-1" });
 
-const TABLE_NAME = process.env.TABLE_NAME || "TestRuns";
+const TEST_RUNS_TABLE_NAME = process.env.TEST_RUNS_TABLE_NAME || "TestRuns";
 const BUCKET_NAME = process.env.BUCKET_NAME || "";
 
 // --- THE SILENT ASSASSIN (NODE NATIVE CLEANUP) ---
@@ -225,7 +225,7 @@ export const handler: Handler = async (event) => {
 
     await docClient.send(
       new UpdateCommand({
-        TableName: TABLE_NAME,
+        TableName: TEST_RUNS_TABLE_NAME,
         Key: { id: testId },
         UpdateExpression:
           "SET #s = :s, #r = :r, screenshot = :scr, updatedAt = :t, history = :h",
@@ -243,7 +243,7 @@ export const handler: Handler = async (event) => {
     console.error(`System Crash:`, error);
     await docClient.send(
       new UpdateCommand({
-        TableName: TABLE_NAME,
+        TableName: TEST_RUNS_TABLE_NAME,
         Key: { id: testId },
         UpdateExpression: "SET #s = :s, #e = :e, updatedAt = :t",
         ExpressionAttributeNames: { "#s": "status", "#e": "error" },

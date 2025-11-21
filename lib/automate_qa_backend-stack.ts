@@ -12,12 +12,24 @@ export class AutomateQaBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // 1. DynamoDB Table
-    const table = new dynamodb.Table(this, "TestRunsTable", {
+    // 1. DynamoDB Tables
+    // Test runs table - stores execution history
+    const testRunsTable = new dynamodb.Table(this, "TestRunsTable", {
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
+
+    // Test definitions table - stores reusable test cases
+    const testDefinitionsTable = new dynamodb.Table(
+      this,
+      "TestDefinitionsTable",
+      {
+        partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }
+    );
 
     // 2. S3 Bucket for Screenshots (NEW)
     const bucket = new s3.Bucket(this, "TestScreenshotsBucket", {
@@ -49,7 +61,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
         memorySize: 3008,
         environment: {
           GEMINI_API_KEY: geminiApiKey,
-          TABLE_NAME: table.tableName,
+          TEST_RUNS_TABLE_NAME: testRunsTable.tableName,
           BUCKET_NAME: bucket.bucketName,
           HOME: "/tmp",
         },
@@ -62,20 +74,22 @@ export class AutomateQaBackendStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: "handler",
       environment: {
-        TABLE_NAME: table.tableName,
+        TEST_RUNS_TABLE_NAME: testRunsTable.tableName,
+        TEST_DEFINITIONS_TABLE_NAME: testDefinitionsTable.tableName,
         RUNNER_FUNCTION_NAME: browserRunner.functionName,
       },
     });
 
     // 5. Permissions
-    table.grantReadWriteData(apiHandler);
-    table.grantReadWriteData(browserRunner);
+    testRunsTable.grantReadWriteData(apiHandler);
+    testRunsTable.grantReadWriteData(browserRunner);
+    testDefinitionsTable.grantReadWriteData(apiHandler);
     browserRunner.grantInvoke(apiHandler);
     bucket.grantReadWrite(browserRunner);
 
     // 6. API Gateway
-    const api = new apigateway.RestApi(this, "FlowTestApi", {
-      restApiName: "FlowTest Service",
+    const api = new apigateway.RestApi(this, "AutomateQAApi", {
+      restApiName: "AutomateQA Service",
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
@@ -89,7 +103,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
         "Access-Control-Allow-Origin": "'*'",
         "Access-Control-Allow-Headers":
           "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
-        "Access-Control-Allow-Methods": "'OPTIONS,GET,POST'",
+        "Access-Control-Allow-Methods": "'OPTIONS,GET,POST,DELETE'",
       },
     });
 
@@ -99,11 +113,13 @@ export class AutomateQaBackendStack extends cdk.Stack {
         "Access-Control-Allow-Origin": "'*'",
         "Access-Control-Allow-Headers":
           "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
-        "Access-Control-Allow-Methods": "'OPTIONS,GET,POST'",
+        "Access-Control-Allow-Methods": "'OPTIONS,GET,POST,DELETE'",
       },
     });
 
     // 7. Define Resources
+
+    // Test runs endpoints (existing)
     const tests = api.root.addResource("tests", {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
@@ -119,6 +135,25 @@ export class AutomateQaBackendStack extends cdk.Stack {
       },
     });
     testStatus.addMethod("GET", new apigateway.LambdaIntegration(apiHandler));
+
+    // Test definitions endpoints (new)
+    const testDefinitions = api.root.addResource("test-definitions", {
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+      },
+    });
+    testDefinitions.addMethod("POST", new apigateway.LambdaIntegration(apiHandler));
+    testDefinitions.addMethod("GET", new apigateway.LambdaIntegration(apiHandler));
+
+    const testDefinitionById = testDefinitions.addResource("{id}", {
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+      },
+    });
+    testDefinitionById.addMethod("GET", new apigateway.LambdaIntegration(apiHandler));
+    testDefinitionById.addMethod("DELETE", new apigateway.LambdaIntegration(apiHandler));
 
     new cdk.CfnOutput(this, "ApiUrl", { value: api.url });
   }

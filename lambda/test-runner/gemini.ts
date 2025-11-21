@@ -34,7 +34,7 @@ export async function getNextStep(
     { "action": "finish", "success": true, "desc": "..." }
   `;
 
-  // RETRY LOGIC (FlowTest Style)
+  // RETRY LOGIC with exponential backoff
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const result = await model.generateContent(prompt);

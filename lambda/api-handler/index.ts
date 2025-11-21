@@ -1,103 +1,122 @@
+/**
+ * API Gateway Lambda Handler
+ * Routes requests to appropriate handlers
+ */
+
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
-  DynamoDBDocumentClient,
-  PutCommand,
-  GetCommand,
-} from "@aws-sdk/lib-dynamodb";
-import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
-import { randomUUID } from "crypto";
+  createTestDefinition,
+  listTestDefinitions,
+  getTestDefinition,
+  deleteTestDefinition,
+} from "./handlers/test-definitions.js";
+import { startTestRun, getTestRun } from "./handlers/test-runs.js";
 
 const dbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dbClient);
-const lambdaClient = new LambdaClient({});
 
-const TABLE_NAME = process.env.TABLE_NAME!;
-const RUNNER_FUNCTION_NAME = process.env.RUNNER_FUNCTION_NAME!;
+const corsHeaders = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
 
 export const handler = async (event: any) => {
   const method = event.httpMethod;
   const path = event.resource;
-
-  const headers = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-  };
+  const pathParams = event.pathParameters;
 
   try {
-    // 1. START TEST (POST /tests)
+    // ========================================
+    // TEST DEFINITIONS ENDPOINTS
+    // ========================================
+
+    // POST /test-definitions - Create new test definition
+    if (method === "POST" && path === "/test-definitions") {
+      const body = JSON.parse(event.body || "{}");
+      const result = await createTestDefinition(docClient, body);
+
+      return {
+        statusCode: 201,
+        headers: corsHeaders,
+        body: JSON.stringify(result),
+      };
+    }
+
+    // GET /test-definitions - List all test definitions
+    if (method === "GET" && path === "/test-definitions") {
+      const result = await listTestDefinitions(docClient);
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify(result),
+      };
+    }
+
+    // GET /test-definitions/{id} - Get specific test definition
+    if (method === "GET" && path === "/test-definitions/{id}" && pathParams?.id) {
+      const result = await getTestDefinition(docClient, pathParams.id);
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify(result),
+      };
+    }
+
+    // DELETE /test-definitions/{id} - Delete test definition
+    if (method === "DELETE" && path === "/test-definitions/{id}" && pathParams?.id) {
+      const result = await deleteTestDefinition(docClient, pathParams.id);
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify(result),
+      };
+    }
+
+    // ========================================
+    // TEST RUNS ENDPOINTS (existing)
+    // ========================================
+
+    // POST /tests - Start a new test run
     if (method === "POST" && path === "/tests") {
       const body = JSON.parse(event.body || "{}");
-      // FIX: Read outcome
-      const { url, instructions, outcome } = body;
-      const testId = randomUUID();
-
-      await docClient.send(
-        new PutCommand({
-          TableName: TABLE_NAME,
-          Item: {
-            id: testId,
-            status: "RUNNING",
-            url,
-            // Optional: Store outcome in DB too for reference
-            outcome: outcome || "N/A",
-            createdAt: new Date().toISOString(),
-          },
-        })
-      );
-
-      await lambdaClient.send(
-        new InvokeCommand({
-          FunctionName: RUNNER_FUNCTION_NAME,
-          InvocationType: "Event",
-          // FIX: Pass outcome to Runner
-          Payload: JSON.stringify({ testId, url, instructions, outcome }),
-        })
-      );
+      const result = await startTestRun(docClient, body);
 
       return {
         statusCode: 200,
-        headers,
-        body: JSON.stringify({ testId, status: "RUNNING" }),
+        headers: corsHeaders,
+        body: JSON.stringify(result),
       };
     }
 
-    // 2. CHECK STATUS (GET /tests/{id})
-    if (method === "GET" && event.pathParameters?.id) {
-      const testId = event.pathParameters.id;
-
-      const result = await docClient.send(
-        new GetCommand({
-          TableName: TABLE_NAME,
-          Key: { id: testId },
-        })
-      );
-
-      if (!result.Item) {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({ error: "Test not found" }),
-        };
-      }
+    // GET /tests/{id} - Check test run status
+    if (method === "GET" && path === "/tests/{id}" && pathParams?.id) {
+      const result = await getTestRun(docClient, pathParams.id);
 
       return {
         statusCode: 200,
-        headers,
-        body: JSON.stringify(result.Item),
+        headers: corsHeaders,
+        body: JSON.stringify(result),
       };
     }
 
+    // Not Found
     return {
       statusCode: 404,
-      headers,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "Not Found" }),
     };
   } catch (error: any) {
-    console.error(error);
+    console.error("API Error:", error);
+
     return {
-      statusCode: 500,
-      headers,
+      statusCode: error.message.includes("not found") ? 404 : 500,
+      headers: corsHeaders,
       body: JSON.stringify({ error: error.message }),
     };
   }
