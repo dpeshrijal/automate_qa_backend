@@ -199,6 +199,43 @@ export const handler: Handler = async (event) => {
       }
 
       await page.waitForTimeout(2000);
+
+      // 4. CAPTURE & UPLOAD SCREENSHOT AFTER EACH STEP
+      try {
+        const screenshotBuffer = await page.screenshot();
+        const s3Key = `${testId}.png`;
+        await s3Client.send(
+          new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key,
+            Body: screenshotBuffer,
+            ContentType: "image/png",
+          })
+        );
+        const signedUrl = await getSignedUrl(
+          s3Client,
+          new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key }),
+          { expiresIn: 86400 }
+        );
+
+        // Update DynamoDB with latest screenshot and history
+        await docClient.send(
+          new UpdateCommand({
+            TableName: TEST_RUNS_TABLE_NAME,
+            Key: { id: testId },
+            UpdateExpression:
+              "SET screenshot = :scr, history = :h, updatedAt = :t",
+            ExpressionAttributeValues: {
+              ":scr": signedUrl,
+              ":h": history,
+              ":t": new Date().toISOString(),
+            },
+          })
+        );
+      } catch (screenshotError: any) {
+        console.error("Screenshot upload failed:", screenshotError.message);
+        // Don't fail the test if screenshot upload fails
+      }
     }
 
     if (loopCount >= MAX_LOOPS) {
