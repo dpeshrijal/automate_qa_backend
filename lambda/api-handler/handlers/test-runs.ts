@@ -104,7 +104,7 @@ export async function getTestRun(
     throw new Error("Test not found");
   }
 
-  // If test is complete and linked to a definition, update definition's last run status
+  // If test is complete and linked to a definition, update definition's last run status and screenshot
   const testRun = result.Item as TestRun;
   if (
     testRun.testDefinitionId &&
@@ -116,9 +116,10 @@ export async function getTestRun(
         new UpdateCommand({
           TableName: TEST_DEFINITIONS_TABLE_NAME,
           Key: { id: testRun.testDefinitionId },
-          UpdateExpression: "SET lastRunStatus = :s",
+          UpdateExpression: "SET lastRunStatus = :s, lastRunScreenshot = :scr",
           ExpressionAttributeValues: {
             ":s": testRun.status,
+            ":scr": testRun.screenshot || null,
           },
         })
       )
