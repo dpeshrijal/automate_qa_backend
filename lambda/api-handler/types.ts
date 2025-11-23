@@ -7,6 +7,7 @@
  */
 export interface TestDefinition {
   id: string;
+  userId: string;
   name: string;
   url: string;
   instructions: string;

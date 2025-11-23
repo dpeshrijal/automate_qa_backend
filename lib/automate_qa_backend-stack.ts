@@ -31,6 +31,28 @@ export class AutomateQaBackendStack extends cdk.Stack {
       }
     );
 
+    // Add GSI for userId queries
+    testDefinitionsTable.addGlobalSecondaryIndex({
+      indexName: "UserIdIndex",
+      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // Users table - stores user authentication data
+    const usersTable = new dynamodb.Table(this, "UsersTable", {
+      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Add GSI for email lookup
+    usersTable.addGlobalSecondaryIndex({
+      indexName: "EmailIndex",
+      partitionKey: { name: "email", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // 2. S3 Bucket for Screenshots (NEW)
     const bucket = new s3.Bucket(this, "TestScreenshotsBucket", {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -76,6 +98,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
       environment: {
         TEST_RUNS_TABLE_NAME: testRunsTable.tableName,
         TEST_DEFINITIONS_TABLE_NAME: testDefinitionsTable.tableName,
+        USERS_TABLE_NAME: usersTable.tableName,
         RUNNER_FUNCTION_NAME: browserRunner.functionName,
       },
     });
@@ -84,6 +107,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
     testRunsTable.grantReadWriteData(apiHandler);
     testRunsTable.grantReadWriteData(browserRunner);
     testDefinitionsTable.grantReadWriteData(apiHandler);
+    usersTable.grantReadWriteData(apiHandler);
     browserRunner.grantInvoke(apiHandler);
     bucket.grantReadWrite(browserRunner);
 
@@ -93,6 +117,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ["Content-Type", "X-User-Id"],
       },
     });
 
@@ -102,7 +127,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
       responseHeaders: {
         "Access-Control-Allow-Origin": "'*'",
         "Access-Control-Allow-Headers":
-          "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+          "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-User-Id'",
         "Access-Control-Allow-Methods": "'OPTIONS,GET,POST,DELETE'",
       },
     });
@@ -112,7 +137,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
       responseHeaders: {
         "Access-Control-Allow-Origin": "'*'",
         "Access-Control-Allow-Headers":
-          "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+          "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-User-Id'",
         "Access-Control-Allow-Methods": "'OPTIONS,GET,POST,DELETE'",
       },
     });
@@ -124,6 +149,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ["Content-Type", "X-User-Id"],
       },
     });
     tests.addMethod("POST", new apigateway.LambdaIntegration(apiHandler));
@@ -132,6 +158,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ["Content-Type", "X-User-Id"],
       },
     });
     testStatus.addMethod("GET", new apigateway.LambdaIntegration(apiHandler));
@@ -141,6 +168,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ["Content-Type", "X-User-Id"],
       },
     });
     testDefinitions.addMethod("POST", new apigateway.LambdaIntegration(apiHandler));
@@ -150,11 +178,13 @@ export class AutomateQaBackendStack extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ["Content-Type", "X-User-Id"],
       },
     });
     testDefinitionById.addMethod("GET", new apigateway.LambdaIntegration(apiHandler));
     testDefinitionById.addMethod("DELETE", new apigateway.LambdaIntegration(apiHandler));
 
     new cdk.CfnOutput(this, "ApiUrl", { value: api.url });
+    new cdk.CfnOutput(this, "UsersTableName", { value: usersTable.tableName });
   }
 }

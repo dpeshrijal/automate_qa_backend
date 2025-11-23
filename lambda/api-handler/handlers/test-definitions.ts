@@ -3,7 +3,7 @@
  * Manages CRUD operations for reusable test cases
  */
 
-import { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
 import type {
   TestDefinition,
@@ -20,18 +20,23 @@ const TEST_DEFINITIONS_TABLE_NAME = process.env.TEST_DEFINITIONS_TABLE_NAME!;
  */
 export async function createTestDefinition(
   docClient: DynamoDBDocumentClient,
-  body: CreateTestDefinitionRequest
+  body: CreateTestDefinitionRequest & { userId: string }
 ): Promise<CreateTestDefinitionResponse> {
-  const { name, url, instructions, desiredOutcome } = body;
+  const { name, url, instructions, desiredOutcome, userId } = body;
 
   // Validation
   if (!name || !url || !instructions || !desiredOutcome) {
     throw new Error("Missing required fields: name, url, instructions, desiredOutcome");
   }
 
+  if (!userId) {
+    throw new Error("Missing userId");
+  }
+
   const now = new Date().toISOString();
   const testDefinition: TestDefinition = {
     id: randomUUID(),
+    userId,
     name,
     url,
     instructions,
@@ -52,23 +57,25 @@ export async function createTestDefinition(
 
 /**
  * GET /test-definitions
- * List all test definitions
+ * List all test definitions for a specific user
  */
 export async function listTestDefinitions(
-  docClient: DynamoDBDocumentClient
+  docClient: DynamoDBDocumentClient,
+  userId: string
 ): Promise<ListTestDefinitionsResponse> {
   const result = await docClient.send(
-    new ScanCommand({
+    new QueryCommand({
       TableName: TEST_DEFINITIONS_TABLE_NAME,
+      IndexName: "UserIdIndex",
+      KeyConditionExpression: "userId = :userId",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+      },
+      ScanIndexForward: false,
     })
   );
 
   const testDefinitions = (result.Items || []) as TestDefinition[];
-
-  // Sort by most recently updated first
-  testDefinitions.sort((a, b) => {
-    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-  });
 
   return { testDefinitions };
 }

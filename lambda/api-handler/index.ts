@@ -20,13 +20,25 @@ const corsHeaders = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-User-Id",
 };
 
 export const handler = async (event: any) => {
   const method = event.httpMethod;
   const path = event.resource;
   const pathParams = event.pathParameters;
+
+  // Extract userId from custom header
+  const userId = event.headers?.["x-user-id"] || event.headers?.["X-User-Id"];
+
+  // Only require userId for non-OPTIONS requests
+  if (method !== "OPTIONS" && !userId) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: "Unauthorized - No user ID provided" }),
+    };
+  }
 
   try {
     // ========================================
@@ -36,7 +48,7 @@ export const handler = async (event: any) => {
     // POST /test-definitions - Create new test definition
     if (method === "POST" && path === "/test-definitions") {
       const body = JSON.parse(event.body || "{}");
-      const result = await createTestDefinition(docClient, body);
+      const result = await createTestDefinition(docClient, { ...body, userId });
 
       return {
         statusCode: 201,
@@ -47,7 +59,7 @@ export const handler = async (event: any) => {
 
     // GET /test-definitions - List all test definitions
     if (method === "GET" && path === "/test-definitions") {
-      const result = await listTestDefinitions(docClient);
+      const result = await listTestDefinitions(docClient, userId);
 
       return {
         statusCode: 200,
