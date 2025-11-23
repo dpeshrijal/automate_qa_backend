@@ -16,6 +16,7 @@ export interface TestDefinition {
   updatedAt: string;
   lastRunAt?: string;
   lastRunStatus?: "COMPLETED" | "FAILED" | "RUNNING";
+  lastRunScreenshot?: string;
 }
 
 /**
