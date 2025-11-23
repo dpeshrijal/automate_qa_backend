@@ -77,6 +77,14 @@ export async function listTestDefinitions(
 
   const testDefinitions = (result.Items || []) as TestDefinition[];
 
+  // Sort by lastRunAt (most recent first), tests never run go to the bottom
+  testDefinitions.sort((a, b) => {
+    if (!a.lastRunAt && !b.lastRunAt) return 0;
+    if (!a.lastRunAt) return 1; // a goes to bottom
+    if (!b.lastRunAt) return -1; // b goes to bottom
+    return new Date(b.lastRunAt).getTime() - new Date(a.lastRunAt).getTime();
+  });
+
   return { testDefinitions };
 }
 
