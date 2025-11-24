@@ -63,7 +63,7 @@ export async function startTestRun(
     new InvokeCommand({
       FunctionName: RUNNER_FUNCTION_NAME,
       InvocationType: "Event",
-      Payload: JSON.stringify({ testId, url, instructions, outcome }),
+      Payload: JSON.stringify({ testId, url, instructions, outcome, testDefinitionId }),
     })
   );
 

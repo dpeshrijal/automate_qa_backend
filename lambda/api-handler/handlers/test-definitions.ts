@@ -4,6 +4,7 @@
  */
 
 import { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { SchedulerClient, CreateScheduleCommand, DeleteScheduleCommand } from "@aws-sdk/client-scheduler";
 import { randomUUID } from "crypto";
 import type {
   TestDefinition,
@@ -13,6 +14,30 @@ import type {
 } from "../types.js";
 
 const TEST_DEFINITIONS_TABLE_NAME = process.env.TEST_DEFINITIONS_TABLE_NAME!;
+const SCHEDULE_ROLE_ARN = process.env.SCHEDULE_ROLE_ARN!;
+
+// Construct API Handler ARN from Lambda context
+const AWS_REGION = process.env.AWS_REGION || process.env.AWS_REGION_NAME!;
+const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID!;
+const FUNCTION_NAME = process.env.AWS_LAMBDA_FUNCTION_NAME!;
+const API_HANDLER_ARN = `arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:${FUNCTION_NAME}`;
+
+const schedulerClient = new SchedulerClient({});
+
+/**
+ * Helper function to convert interval to EventBridge rate expression
+ */
+function getScheduleExpression(interval: string): string {
+  const intervalMap: Record<string, string> = {
+    "15m": "rate(15 minutes)",
+    "30m": "rate(30 minutes)",
+    "1h": "rate(1 hour)",
+    "6h": "rate(6 hours)",
+    "12h": "rate(12 hours)",
+    "24h": "rate(24 hours)",
+  };
+  return intervalMap[interval] || "rate(1 hour)";
+}
 
 /**
  * POST /test-definitions
@@ -22,7 +47,7 @@ export async function createTestDefinition(
   docClient: DynamoDBDocumentClient,
   body: CreateTestDefinitionRequest & { userId: string }
 ): Promise<CreateTestDefinitionResponse> {
-  const { name, url, instructions, desiredOutcome, userId } = body;
+  const { name, url, instructions, desiredOutcome, userId, isScheduled, scheduleInterval } = body;
 
   // Validation
   if (!name || !url || !instructions || !desiredOutcome) {
@@ -33,9 +58,15 @@ export async function createTestDefinition(
     throw new Error("Missing userId");
   }
 
+  if (isScheduled && !scheduleInterval) {
+    throw new Error("scheduleInterval is required when isScheduled is true");
+  }
+
   const now = new Date().toISOString();
+  const testId = randomUUID();
+
   const testDefinition: TestDefinition = {
-    id: randomUUID(),
+    id: testId,
     userId,
     name,
     url,
@@ -43,7 +74,37 @@ export async function createTestDefinition(
     desiredOutcome,
     createdAt: now,
     updatedAt: now,
+    isScheduled: isScheduled || false,
+    scheduleInterval: scheduleInterval,
   };
+
+  // Create EventBridge schedule if needed
+  if (isScheduled && scheduleInterval) {
+    const scheduleName = `test-${testId}`;
+
+    try {
+      await schedulerClient.send(
+        new CreateScheduleCommand({
+          Name: scheduleName,
+          ScheduleExpression: getScheduleExpression(scheduleInterval),
+          FlexibleTimeWindow: { Mode: "OFF" },
+          Target: {
+            Arn: API_HANDLER_ARN,
+            RoleArn: SCHEDULE_ROLE_ARN,
+            Input: JSON.stringify({
+              source: "eventbridge.scheduler",
+              testDefinitionId: testId,
+            }),
+          },
+        })
+      );
+
+      testDefinition.scheduleName = scheduleName;
+    } catch (error: any) {
+      console.error("Failed to create schedule:", error);
+      throw new Error(`Failed to create schedule: ${error.message}`);
+    }
+  }
 
   await docClient.send(
     new PutCommand({
@@ -118,6 +179,23 @@ export async function deleteTestDefinition(
   docClient: DynamoDBDocumentClient,
   id: string
 ): Promise<{ message: string }> {
+  // First get the test to check if it has a schedule
+  const testDef = await getTestDefinition(docClient, id);
+
+  // Delete EventBridge schedule if it exists
+  if (testDef.scheduleName) {
+    try {
+      await schedulerClient.send(
+        new DeleteScheduleCommand({
+          Name: testDef.scheduleName,
+        })
+      );
+    } catch (error: any) {
+      console.error("Failed to delete schedule:", error);
+      // Continue with deletion even if schedule deletion fails
+    }
+  }
+
   await docClient.send(
     new DeleteCommand({
       TableName: TEST_DEFINITIONS_TABLE_NAME,

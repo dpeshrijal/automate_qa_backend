@@ -24,6 +24,27 @@ const corsHeaders = {
 };
 
 export const handler = async (event: any) => {
+  // Handle EventBridge Scheduler invocations
+  if (event.source === "eventbridge.scheduler" && event.testDefinitionId) {
+    try {
+      // Get the test definition
+      const testDef = await getTestDefinition(docClient, event.testDefinitionId);
+
+      // Start a test run
+      await startTestRun(docClient, {
+        url: testDef.url,
+        instructions: testDef.instructions,
+        outcome: testDef.desiredOutcome,
+        testDefinitionId: testDef.id,
+      });
+
+      return { statusCode: 200, body: JSON.stringify({ message: "Scheduled test started" }) };
+    } catch (error: any) {
+      console.error("Scheduled test error:", error);
+      return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+    }
+  }
+
   const method = event.httpMethod;
   const path = event.resource;
   const pathParams = event.pathParameters;

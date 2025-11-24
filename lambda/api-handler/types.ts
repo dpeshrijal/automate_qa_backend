@@ -17,6 +17,10 @@ export interface TestDefinition {
   lastRunAt?: string;
   lastRunStatus?: "COMPLETED" | "FAILED" | "RUNNING";
   lastRunScreenshot?: string;
+  // Scheduling fields
+  isScheduled?: boolean;
+  scheduleInterval?: "15m" | "30m" | "1h" | "6h" | "12h" | "24h";
+  scheduleName?: string; // EventBridge schedule name
 }
 
 /**
@@ -56,6 +60,8 @@ export interface CreateTestDefinitionRequest {
   url: string;
   instructions: string;
   desiredOutcome: string;
+  isScheduled?: boolean;
+  scheduleInterval?: "15m" | "30m" | "1h" | "6h" | "12h" | "24h";
 }
 
 export interface CreateTestDefinitionResponse {

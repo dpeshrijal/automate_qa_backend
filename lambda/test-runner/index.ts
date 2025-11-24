@@ -17,6 +17,7 @@ const docClient = DynamoDBDocumentClient.from(dbClient);
 const s3Client = new S3Client({ region: "us-east-1" });
 
 const TEST_RUNS_TABLE_NAME = process.env.TEST_RUNS_TABLE_NAME || "TestRuns";
+const TEST_DEFINITIONS_TABLE_NAME = process.env.TEST_DEFINITIONS_TABLE_NAME || "";
 const BUCKET_NAME = process.env.BUCKET_NAME || "";
 
 // --- THE SILENT ASSASSIN (NODE NATIVE CLEANUP) ---
@@ -74,7 +75,7 @@ export const handler: Handler = async (event) => {
   // RUN CLEANUP FIRST
   cleanupEnvironment();
 
-  const { url, instructions, testId } = event;
+  const { url, instructions, testId, testDefinitionId } = event;
   if (!url || !instructions || !testId) return { statusCode: 400 };
 
   // Auto-add https://
@@ -276,6 +277,25 @@ export const handler: Handler = async (event) => {
         },
       })
     );
+
+    // If this test is linked to a test definition, update the definition's status
+    if (testDefinitionId && TEST_DEFINITIONS_TABLE_NAME) {
+      try {
+        await docClient.send(
+          new UpdateCommand({
+            TableName: TEST_DEFINITIONS_TABLE_NAME,
+            Key: { id: testDefinitionId },
+            UpdateExpression: "SET lastRunStatus = :s, lastRunScreenshot = :scr",
+            ExpressionAttributeValues: {
+              ":s": testResult,
+              ":scr": signedUrl,
+            },
+          })
+        );
+      } catch (err) {
+        console.error("Failed to update test definition:", err);
+      }
+    }
   } catch (error: any) {
     console.error(`System Crash:`, error);
     await docClient.send(
@@ -291,6 +311,24 @@ export const handler: Handler = async (event) => {
         },
       })
     );
+
+    // If this test is linked to a test definition, update the definition's status
+    if (testDefinitionId && TEST_DEFINITIONS_TABLE_NAME) {
+      try {
+        await docClient.send(
+          new UpdateCommand({
+            TableName: TEST_DEFINITIONS_TABLE_NAME,
+            Key: { id: testDefinitionId },
+            UpdateExpression: "SET lastRunStatus = :s",
+            ExpressionAttributeValues: {
+              ":s": "FAILED",
+            },
+          })
+        );
+      } catch (err) {
+        console.error("Failed to update test definition:", err);
+      }
+    }
   } finally {
     if (browser) await browser.close();
   }
