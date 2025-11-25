@@ -3,7 +3,7 @@ import { chromium as playwright } from "playwright-core";
 import chromium from "@sparticuz/chromium";
 import { getNextStep } from "./gemini.js";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import {
   S3Client,
   PutObjectCommand,
@@ -19,6 +19,75 @@ const s3Client = new S3Client({ region: "us-east-1" });
 const TEST_RUNS_TABLE_NAME = process.env.TEST_RUNS_TABLE_NAME || "TestRuns";
 const TEST_DEFINITIONS_TABLE_NAME = process.env.TEST_DEFINITIONS_TABLE_NAME || "";
 const BUCKET_NAME = process.env.BUCKET_NAME || "";
+
+/**
+ * Send Slack notification for test result
+ */
+async function sendSlackNotification(
+  webhookUrl: string,
+  testName: string,
+  testUrl: string,
+  status: "COMPLETED" | "FAILED",
+  message: string,
+  screenshotUrl?: string
+) {
+  try {
+    const color = status === "COMPLETED" ? "#36a64f" : "#ff0000";
+    const emoji = status === "COMPLETED" ? "✅" : "❌";
+    const statusText = status === "COMPLETED" ? "PASSED" : "FAILED";
+
+    const payload = {
+      text: `${emoji} Test ${statusText}: ${testName}`,
+      attachments: [
+        {
+          color: color,
+          fields: [
+            {
+              title: "Test Name",
+              value: testName,
+              short: true,
+            },
+            {
+              title: "Status",
+              value: statusText,
+              short: true,
+            },
+            {
+              title: "URL",
+              value: testUrl,
+              short: false,
+            },
+            {
+              title: "Result",
+              value: message,
+              short: false,
+            },
+          ],
+          footer: "AutomateQA.ai",
+          ts: Math.floor(Date.now() / 1000),
+          ...(screenshotUrl && {
+            image_url: screenshotUrl,
+            thumb_url: screenshotUrl,
+          }),
+        },
+      ],
+    };
+
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.error("Slack notification failed:", response.status, response.statusText);
+    } else {
+      console.log("Slack notification sent successfully");
+    }
+  } catch (error: any) {
+    console.error("Failed to send Slack notification:", error.message);
+  }
+}
 
 // --- THE SILENT ASSASSIN (NODE NATIVE CLEANUP) ---
 const cleanupEnvironment = () => {
@@ -292,6 +361,29 @@ export const handler: Handler = async (event) => {
             },
           })
         );
+
+        // Send Slack notification if webhook is configured
+        try {
+          const testDefResult = await docClient.send(
+            new GetCommand({
+              TableName: TEST_DEFINITIONS_TABLE_NAME,
+              Key: { id: testDefinitionId },
+            })
+          );
+
+          if (testDefResult.Item?.slackWebhookUrl) {
+            await sendSlackNotification(
+              testDefResult.Item.slackWebhookUrl,
+              testDefResult.Item.name || "Test",
+              validUrl,
+              testResult as "COMPLETED" | "FAILED",
+              finalMessage,
+              signedUrl
+            );
+          }
+        } catch (slackErr) {
+          console.error("Failed to send Slack notification:", slackErr);
+        }
       } catch (err) {
         console.error("Failed to update test definition:", err);
       }
@@ -325,6 +417,28 @@ export const handler: Handler = async (event) => {
             },
           })
         );
+
+        // Send Slack notification if webhook is configured
+        try {
+          const testDefResult = await docClient.send(
+            new GetCommand({
+              TableName: TEST_DEFINITIONS_TABLE_NAME,
+              Key: { id: testDefinitionId },
+            })
+          );
+
+          if (testDefResult.Item?.slackWebhookUrl) {
+            await sendSlackNotification(
+              testDefResult.Item.slackWebhookUrl,
+              testDefResult.Item.name || "Test",
+              validUrl,
+              "FAILED",
+              error.message
+            );
+          }
+        } catch (slackErr) {
+          console.error("Failed to send Slack notification:", slackErr);
+        }
       } catch (err) {
         console.error("Failed to update test definition:", err);
       }

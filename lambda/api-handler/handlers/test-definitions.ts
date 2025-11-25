@@ -47,7 +47,7 @@ export async function createTestDefinition(
   docClient: DynamoDBDocumentClient,
   body: CreateTestDefinitionRequest & { userId: string }
 ): Promise<CreateTestDefinitionResponse> {
-  const { name, url, instructions, desiredOutcome, userId, isScheduled, scheduleInterval } = body;
+  const { name, url, instructions, desiredOutcome, userId, isScheduled, scheduleInterval, slackWebhookUrl } = body;
 
   // Validation
   if (!name || !url || !instructions || !desiredOutcome) {
@@ -76,6 +76,7 @@ export async function createTestDefinition(
     updatedAt: now,
     isScheduled: isScheduled || false,
     scheduleInterval: scheduleInterval,
+    slackWebhookUrl: slackWebhookUrl,
   };
 
   // Create EventBridge schedule if needed

@@ -21,6 +21,8 @@ export interface TestDefinition {
   isScheduled?: boolean;
   scheduleInterval?: "15m" | "30m" | "1h" | "6h" | "12h" | "24h";
   scheduleName?: string; // EventBridge schedule name
+  // Slack integration
+  slackWebhookUrl?: string;
 }
 
 /**
@@ -62,6 +64,7 @@ export interface CreateTestDefinitionRequest {
   desiredOutcome: string;
   isScheduled?: boolean;
   scheduleInterval?: "15m" | "30m" | "1h" | "6h" | "12h" | "24h";
+  slackWebhookUrl?: string;
 }
 
 export interface CreateTestDefinitionResponse {
