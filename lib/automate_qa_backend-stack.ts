@@ -161,7 +161,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
         "Access-Control-Allow-Origin": "'*'",
         "Access-Control-Allow-Headers":
           "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-User-Id'",
-        "Access-Control-Allow-Methods": "'OPTIONS,GET,POST,DELETE'",
+        "Access-Control-Allow-Methods": "'OPTIONS,GET,POST,PUT,DELETE'",
       },
     });
 
@@ -171,7 +171,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
         "Access-Control-Allow-Origin": "'*'",
         "Access-Control-Allow-Headers":
           "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-User-Id'",
-        "Access-Control-Allow-Methods": "'OPTIONS,GET,POST,DELETE'",
+        "Access-Control-Allow-Methods": "'OPTIONS,GET,POST,PUT,DELETE'",
       },
     });
 
@@ -215,6 +215,7 @@ export class AutomateQaBackendStack extends cdk.Stack {
       },
     });
     testDefinitionById.addMethod("GET", new apigateway.LambdaIntegration(apiHandler));
+    testDefinitionById.addMethod("PUT", new apigateway.LambdaIntegration(apiHandler));
     testDefinitionById.addMethod("DELETE", new apigateway.LambdaIntegration(apiHandler));
 
     // Grant scheduler role permission to invoke API Handler

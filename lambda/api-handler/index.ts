@@ -9,6 +9,7 @@ import {
   createTestDefinition,
   listTestDefinitions,
   getTestDefinition,
+  updateTestDefinition,
   deleteTestDefinition,
 } from "./handlers/test-definitions.js";
 import { startTestRun, getTestRun } from "./handlers/test-runs.js";
@@ -19,7 +20,7 @@ const docClient = DynamoDBDocumentClient.from(dbClient);
 const corsHeaders = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "POST, GET, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-User-Id",
 };
 
@@ -92,6 +93,18 @@ export const handler = async (event: any) => {
     // GET /test-definitions/{id} - Get specific test definition
     if (method === "GET" && path === "/test-definitions/{id}" && pathParams?.id) {
       const result = await getTestDefinition(docClient, pathParams.id);
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify(result),
+      };
+    }
+
+    // PUT /test-definitions/{id} - Update test definition
+    if (method === "PUT" && path === "/test-definitions/{id}" && pathParams?.id) {
+      const body = JSON.parse(event.body || "{}");
+      const result = await updateTestDefinition(docClient, pathParams.id, body);
 
       return {
         statusCode: 200,

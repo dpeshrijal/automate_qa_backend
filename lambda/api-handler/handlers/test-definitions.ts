@@ -173,6 +173,115 @@ export async function getTestDefinition(
 }
 
 /**
+ * PUT /test-definitions/{id}
+ * Update a test definition
+ */
+export async function updateTestDefinition(
+  docClient: DynamoDBDocumentClient,
+  id: string,
+  body: Partial<CreateTestDefinitionRequest>
+): Promise<{ testDefinition: TestDefinition }> {
+  // Get existing test definition
+  const existingTest = await getTestDefinition(docClient, id);
+
+  const { name, url, instructions, desiredOutcome, isScheduled, scheduleInterval, slackWebhookUrl } = body;
+
+  // Check if scheduling changed
+  const wasScheduled = existingTest.isScheduled;
+  const willBeScheduled = isScheduled !== undefined ? isScheduled : wasScheduled;
+  const oldInterval = existingTest.scheduleInterval;
+  const newInterval = scheduleInterval || oldInterval;
+
+  // Handle schedule updates
+  if (wasScheduled && !willBeScheduled && existingTest.scheduleName) {
+    // Delete existing schedule
+    try {
+      await schedulerClient.send(
+        new DeleteScheduleCommand({
+          Name: existingTest.scheduleName,
+        })
+      );
+    } catch (error: any) {
+      console.error("Failed to delete schedule:", error);
+    }
+  } else if (!wasScheduled && willBeScheduled && newInterval) {
+    // Create new schedule
+    const scheduleName = `test-${id}`;
+    try {
+      await schedulerClient.send(
+        new CreateScheduleCommand({
+          Name: scheduleName,
+          ScheduleExpression: getScheduleExpression(newInterval),
+          FlexibleTimeWindow: { Mode: "OFF" },
+          Target: {
+            Arn: API_HANDLER_ARN,
+            RoleArn: SCHEDULE_ROLE_ARN,
+            Input: JSON.stringify({
+              source: "eventbridge.scheduler",
+              testDefinitionId: id,
+            }),
+          },
+        })
+      );
+      existingTest.scheduleName = scheduleName;
+    } catch (error: any) {
+      console.error("Failed to create schedule:", error);
+      throw new Error(`Failed to create schedule: ${error.message}`);
+    }
+  } else if (wasScheduled && willBeScheduled && oldInterval !== newInterval && existingTest.scheduleName && newInterval) {
+    // Update existing schedule (delete and recreate)
+    try {
+      await schedulerClient.send(
+        new DeleteScheduleCommand({
+          Name: existingTest.scheduleName,
+        })
+      );
+
+      await schedulerClient.send(
+        new CreateScheduleCommand({
+          Name: existingTest.scheduleName,
+          ScheduleExpression: getScheduleExpression(newInterval),
+          FlexibleTimeWindow: { Mode: "OFF" },
+          Target: {
+            Arn: API_HANDLER_ARN,
+            RoleArn: SCHEDULE_ROLE_ARN,
+            Input: JSON.stringify({
+              source: "eventbridge.scheduler",
+              testDefinitionId: id,
+            }),
+          },
+        })
+      );
+    } catch (error: any) {
+      console.error("Failed to update schedule:", error);
+      throw new Error(`Failed to update schedule: ${error.message}`);
+    }
+  }
+
+  // Update the test definition
+  const updatedTest: TestDefinition = {
+    ...existingTest,
+    name: name || existingTest.name,
+    url: url || existingTest.url,
+    instructions: instructions || existingTest.instructions,
+    desiredOutcome: desiredOutcome || existingTest.desiredOutcome,
+    isScheduled: willBeScheduled,
+    scheduleInterval: willBeScheduled ? newInterval : undefined,
+    slackWebhookUrl: slackWebhookUrl !== undefined ? slackWebhookUrl : existingTest.slackWebhookUrl,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await docClient.send(
+    new PutCommand({
+      TableName: TEST_DEFINITIONS_TABLE_NAME,
+      Item: updatedTest,
+    })
+  );
+
+  return { testDefinition: updatedTest };
+}
+
+/**
  * DELETE /test-definitions/{id}
  * Delete a test definition
  */
